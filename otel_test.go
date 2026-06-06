@@ -76,6 +76,17 @@ func TestOTELCountCanUseCounter(t *testing.T) {
 	require.EqualValues(t, 6, sum.DataPoints[0].Value)
 }
 
+func TestOTELCountRejectsNegativeValueWithCounterOption(t *testing.T) {
+	statter, _ := newTestOTELStatter(true)
+	t.Cleanup(func() {
+		require.NoError(t, statter.Close())
+	})
+
+	err := statter.Count("events.total", -1, []string{"status=ok"}, 1)
+	require.EqualError(t, err, "counter value must be non-negative")
+	require.Empty(t, statter.counters)
+}
+
 func TestOTELDecrUsesUpDownCounterWithCounterOption(t *testing.T) {
 	statter, reader := newTestOTELStatter(true)
 	t.Cleanup(func() {

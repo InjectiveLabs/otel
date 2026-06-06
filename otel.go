@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -204,6 +205,9 @@ func (s *otelStatter) getHistogram(name string) (otelmetric.Float64Histogram, er
 
 func (s *otelStatter) Count(name string, value int64, tags []string, rate float64) error {
 	if s.useCounters {
+		if value < 0 {
+			return fmt.Errorf("counter value must be non-negative")
+		}
 		c, err := s.getCounter(name)
 		if err != nil {
 			return err
