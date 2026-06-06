@@ -284,3 +284,39 @@ func (s *otelStatter) Close() error {
 func (s *otelStatter) CloseCtx(ctx context.Context) error {
 	return s.meterProvider.Shutdown(ctx)
 }
+
+func OTelSetupHistogram(name string, opts ...otelmetric.Float64HistogramOption) error {
+	clientMux.RLock()
+	c := client
+	clientMux.RUnlock()
+
+	if c == nil {
+		return nil
+	}
+
+	s, ok := c.(*otelStatter)
+	if !ok {
+		return nil
+	}
+
+	fullName := s.prefix + name
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.histograms[fullName]; exists {
+		return fmt.Errorf("histogram %s already initialized", fullName)
+	}
+
+	finalOpts := append([]otelmetric.Float64HistogramOption{
+		otelmetric.WithUnit("ms"),
+	}, opts...)
+
+	h, err := s.meter.Float64Histogram(fullName, finalOpts...)
+	if err != nil {
+		return err
+	}
+
+	s.histograms[fullName] = h
+	return nil
+}
