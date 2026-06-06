@@ -38,23 +38,24 @@ var (
 )
 
 type StatterConfig struct {
-	Addr                 string            // localhost:8125
-	Prefix               string            // metrics prefix
-	Agent                string            // telegraf/datadog
-	EnvName              string            // dev/test/staging/prod
-	HostName             string            // hostname
-	Version              string            // version
-	DefaultTags          []interface{}     // default tags for all metrics
-	StuckFunctionTimeout time.Duration     // stuck time
-	MockingThreshold     time.Duration     // mocking threshold
-	MockingEnabled       bool              // whether to enable mock statter, which only produce logs
-	Disabled             bool              // whether to disable metrics completely
-	TracingEnabled       bool              // whether tracing should be enabled
-	ProfilingEnabled     bool              // whether Datadog profiling should be enabled
-	MixPanelEnabled      bool              // whether MixPanel should be enabled
-	MixPanelProjectToken string            // MixPanel project token
-	OTELInsecure         bool              // disable TLS (use for self-hosted SigNoz without TLS)
-	OTELHeaders          map[string]string // extra headers, e.g. {"signoz-access-token": "<token>"} for SigNoz Cloud
+	Addr                   string            // localhost:8125
+	Prefix                 string            // metrics prefix
+	Agent                  string            // telegraf/datadog
+	EnvName                string            // dev/test/staging/prod
+	HostName               string            // hostname
+	Version                string            // version
+	DefaultTags            []interface{}     // default tags for all metrics
+	StuckFunctionTimeout   time.Duration     // stuck time
+	MockingThreshold       time.Duration     // mocking threshold
+	MockingEnabled         bool              // whether to enable mock statter, which only produce logs
+	Disabled               bool              // whether to disable metrics completely
+	TracingEnabled         bool              // whether tracing should be enabled
+	ProfilingEnabled       bool              // whether Datadog profiling should be enabled
+	MixPanelEnabled        bool              // whether MixPanel should be enabled
+	MixPanelProjectToken   string            // MixPanel project token
+	OTELInsecure           bool              // disable TLS (use for self-hosted SigNoz without TLS)
+	OTELHeaders            map[string]string // extra headers, e.g. {"signoz-access-token": "<token>"} for SigNoz Cloud
+	OTELUseCounterForCount bool              // use monotonic OTel counters for Count/Incr instead of UpDownCounters
 }
 
 func (m *StatterConfig) BaseTags() []string {
@@ -177,6 +178,7 @@ func Init(addr string, prefix string, cfg *StatterConfig) error {
 			cfg.OTELInsecure,
 			cfg.OTELHeaders,
 			config.BaseTags(),
+			cfg.OTELUseCounterForCount,
 		)
 
 	default:

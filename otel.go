@@ -20,8 +20,10 @@ type otelStatter struct {
 	meter         otelmetric.Meter
 	meterProvider *sdkmetric.MeterProvider
 	prefix        string
+	useCounters   bool
 
 	mu             sync.RWMutex
+	counters       map[string]otelmetric.Int64Counter
 	updownCounters map[string]otelmetric.Int64UpDownCounter
 	gauges         map[string]otelmetric.Float64Gauge
 	histograms     map[string]otelmetric.Float64Histogram
@@ -41,7 +43,7 @@ func newOTELResource(baseTags []string) *resource.Resource {
 	return res
 }
 
-func newOTELStatter(endpoint, prefix string, insecure bool, headers map[string]string, baseTags []string) (Statter, error) {
+func newOTELStatter(endpoint, prefix string, insecure bool, headers map[string]string, baseTags []string, useCounters bool) (Statter, error) {
 	ctx := context.Background()
 
 	metricOpts := []otlpmetricgrpc.Option{
@@ -70,6 +72,8 @@ func newOTELStatter(endpoint, prefix string, insecure bool, headers map[string]s
 		meter:          mp.Meter(prefix),
 		meterProvider:  mp,
 		prefix:         prefix,
+		useCounters:    useCounters,
+		counters:       make(map[string]otelmetric.Int64Counter),
 		updownCounters: make(map[string]otelmetric.Int64UpDownCounter),
 		gauges:         make(map[string]otelmetric.Float64Gauge),
 		histograms:     make(map[string]otelmetric.Float64Histogram),
@@ -112,6 +116,27 @@ func (s *otelStatter) tagsToAttrs(tags []string) []attribute.KeyValue {
 		attrs = append(attrs, attribute.String(tag[:idx], tag[idx+1:]))
 	}
 	return attrs
+}
+
+func (s *otelStatter) getCounter(name string) (otelmetric.Int64Counter, error) {
+	fullName := s.prefix + name
+	s.mu.RLock()
+	c, ok := s.counters[fullName]
+	s.mu.RUnlock()
+	if ok {
+		return c, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c, ok = s.counters[fullName]; ok {
+		return c, nil
+	}
+	c, err := s.meter.Int64Counter(fullName)
+	if err != nil {
+		return nil, err
+	}
+	s.counters[fullName] = c
+	return c, nil
 }
 
 func (s *otelStatter) getUpDownCounter(name string) (otelmetric.Int64UpDownCounter, error) {
@@ -178,6 +203,14 @@ func (s *otelStatter) getHistogram(name string) (otelmetric.Float64Histogram, er
 }
 
 func (s *otelStatter) Count(name string, value int64, tags []string, rate float64) error {
+	if s.useCounters {
+		c, err := s.getCounter(name)
+		if err != nil {
+			return err
+		}
+		c.Add(context.Background(), value, otelmetric.WithAttributes(s.tagsToAttrs(tags)...))
+		return nil
+	}
 	c, err := s.getUpDownCounter(name)
 	if err != nil {
 		return err
@@ -187,6 +220,14 @@ func (s *otelStatter) Count(name string, value int64, tags []string, rate float6
 }
 
 func (s *otelStatter) Incr(name string, tags []string, rate float64) error {
+	if s.useCounters {
+		c, err := s.getCounter(name)
+		if err != nil {
+			return err
+		}
+		c.Add(context.Background(), 1, otelmetric.WithAttributes(s.tagsToAttrs(tags)...))
+		return nil
+	}
 	c, err := s.getUpDownCounter(name)
 	if err != nil {
 		return err
