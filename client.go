@@ -2,7 +2,9 @@ package metrics
 
 import (
 	"context"
+	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,23 +40,24 @@ var (
 )
 
 type StatterConfig struct {
-	Addr                 string            // localhost:8125
-	Prefix               string            // metrics prefix
-	Agent                string            // telegraf/datadog
-	EnvName              string            // dev/test/staging/prod
-	HostName             string            // hostname
-	Version              string            // version
-	DefaultTags          []interface{}     // default tags for all metrics
-	StuckFunctionTimeout time.Duration     // stuck time
-	MockingThreshold     time.Duration     // mocking threshold
-	MockingEnabled       bool              // whether to enable mock statter, which only produce logs
-	Disabled             bool              // whether to disable metrics completely
-	TracingEnabled       bool              // whether tracing should be enabled
-	ProfilingEnabled     bool              // whether Datadog profiling should be enabled
-	MixPanelEnabled      bool              // whether MixPanel should be enabled
-	MixPanelProjectToken string            // MixPanel project token
-	OTELInsecure         bool              // disable TLS (use for self-hosted SigNoz without TLS)
-	OTELHeaders          map[string]string // extra headers, e.g. {"signoz-access-token": "<token>"} for SigNoz Cloud
+	Addr                   string            // localhost:8125
+	Prefix                 string            // metrics prefix
+	Agent                  string            // telegraf/datadog
+	EnvName                string            // dev/test/staging/prod
+	HostName               string            // hostname
+	Version                string            // version
+	DefaultTags            []interface{}     // default tags for all metrics
+	StuckFunctionTimeout   time.Duration     // stuck time
+	MockingThreshold       time.Duration     // mocking threshold
+	MockingEnabled         bool              // whether to enable mock statter, which only produce logs
+	Disabled               bool              // whether to disable metrics completely
+	TracingEnabled         bool              // whether tracing should be enabled
+	ProfilingEnabled       bool              // whether Datadog profiling should be enabled
+	MixPanelEnabled        bool              // whether MixPanel should be enabled
+	MixPanelProjectToken   string            // MixPanel project token
+	OTELInsecure           bool              // disable TLS (use for self-hosted SigNoz without TLS)
+	OTELHeaders            map[string]string // extra headers, e.g. {"signoz-access-token": "<token>"} for SigNoz Cloud
+	OTELUseCounterForCount bool              // use monotonic OTel counters for Count/Incr instead of UpDownCounters
 }
 
 func (m *StatterConfig) BaseTags() []string {
@@ -177,6 +180,7 @@ func Init(addr string, prefix string, cfg *StatterConfig) error {
 			cfg.OTELInsecure,
 			cfg.OTELHeaders,
 			config.BaseTags(),
+			cfg.OTELUseCounterForCount,
 		)
 
 	default:
@@ -227,6 +231,72 @@ func Init(addr string, prefix string, cfg *StatterConfig) error {
 	}
 
 	return nil
+}
+
+type ServiceConfig struct {
+	Disabled             bool
+	ServiceName          string
+	AgentID              string
+	AgentAddress         string
+	MetricsPrefix        string
+	EnvName              string
+	MockingEnabled       bool
+	MockingThreshold     time.Duration
+	MixPanelEnabled      bool
+	MixPanelProjectToken string
+	OTelInsecure         bool
+	OTelUseCounters      bool
+	TracingEnabled       bool
+	RetryInitialInterval time.Duration
+}
+
+func (c ServiceConfig) normalizePrefix() string {
+	return strings.TrimRight(c.MetricsPrefix, ".") + "."
+}
+
+func InitService(ctx context.Context, cfg ServiceConfig) (func(timeout time.Duration), error) {
+	closeFn := func(time.Duration) {}
+	if err := cfg.Validate(); err != nil {
+		return closeFn, err
+	}
+	if cfg.Disabled {
+		return closeFn, nil
+	}
+
+	if cfg.RetryInitialInterval <= 0 {
+		cfg.RetryInitialInterval = 10 * time.Second
+	}
+
+	for {
+		hostname, _ := os.Hostname()
+		err := Init(cfg.AgentAddress, cfg.normalizePrefix(), &StatterConfig{
+			Agent:                  cfg.AgentID,
+			EnvName:                cfg.EnvName,
+			HostName:               hostname,
+			MockingEnabled:         cfg.MockingEnabled,
+			MockingThreshold:       cfg.MockingThreshold,
+			MixPanelEnabled:        cfg.MixPanelEnabled,
+			MixPanelProjectToken:   cfg.MixPanelProjectToken,
+			OTELInsecure:           cfg.OTelInsecure,
+			OTELUseCounterForCount: cfg.OTelUseCounters,
+			TracingEnabled:         cfg.TracingEnabled,
+			DefaultTags:            []interface{}{"service.name", cfg.ServiceName},
+		})
+		if err != nil {
+			log.WithError(err).Warningf("metrics init failed, will retry in %s seconds", cfg.RetryInitialInterval)
+			select {
+			case <-ctx.Done():
+				return closeFn, nil
+			case <-time.After(cfg.RetryInitialInterval):
+			}
+			continue
+		}
+		log.Debugf("metrics %s client initialized at %s with prefix %s (mocking %v)",
+			cfg.AgentID, cfg.AgentAddress, cfg.normalizePrefix(), cfg.MockingEnabled)
+		break
+	}
+
+	return CloseWithTimeout, nil
 }
 
 func StartMixPanel(projectToken string) {
