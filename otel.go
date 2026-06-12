@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -17,17 +18,33 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
+var (
+	useOTelCounters atomic.Bool
+)
+
+// ForceOTelCounters enables monotonic OTel counters for otelStatter instances
+// created after this call. Call it before creating statters to change the
+// global default.
+func ForceOTelCounters() {
+	useOTelCounters.Store(true)
+}
+
 type otelStatter struct {
-	meter         otelmetric.Meter
-	meterProvider *sdkmetric.MeterProvider
-	prefix        string
-	useCounters   bool
+	meter                    otelmetric.Meter
+	meterProvider            *sdkmetric.MeterProvider
+	prefix                   string
+	useCounters              bool
+	effectiveUseOTelCounters bool
 
 	mu             sync.RWMutex
 	counters       map[string]otelmetric.Int64Counter
 	updownCounters map[string]otelmetric.Int64UpDownCounter
 	gauges         map[string]otelmetric.Float64Gauge
 	histograms     map[string]otelmetric.Float64Histogram
+}
+
+func (s *otelStatter) shouldUseOTelCounters() bool {
+	return s.effectiveUseOTelCounters
 }
 
 func newOTELResource(baseTags []string) *resource.Resource {
@@ -70,14 +87,15 @@ func newOTELStatter(endpoint, prefix string, insecure bool, headers map[string]s
 	otel.SetMeterProvider(mp)
 
 	return &otelStatter{
-		meter:          mp.Meter(prefix),
-		meterProvider:  mp,
-		prefix:         prefix,
-		useCounters:    useCounters,
-		counters:       make(map[string]otelmetric.Int64Counter),
-		updownCounters: make(map[string]otelmetric.Int64UpDownCounter),
-		gauges:         make(map[string]otelmetric.Float64Gauge),
-		histograms:     make(map[string]otelmetric.Float64Histogram),
+		meter:                    mp.Meter(prefix),
+		meterProvider:            mp,
+		prefix:                   prefix,
+		useCounters:              useCounters,
+		effectiveUseOTelCounters: useCounters || useOTelCounters.Load(),
+		counters:                 make(map[string]otelmetric.Int64Counter),
+		updownCounters:           make(map[string]otelmetric.Int64UpDownCounter),
+		gauges:                   make(map[string]otelmetric.Float64Gauge),
+		histograms:               make(map[string]otelmetric.Float64Histogram),
 	}, nil
 }
 
@@ -204,7 +222,7 @@ func (s *otelStatter) getHistogram(name string) (otelmetric.Float64Histogram, er
 }
 
 func (s *otelStatter) Count(name string, value int64, tags []string, rate float64) error {
-	if s.useCounters {
+	if s.shouldUseOTelCounters() {
 		if value < 0 {
 			return fmt.Errorf("counter value must be non-negative")
 		}
@@ -224,7 +242,7 @@ func (s *otelStatter) Count(name string, value int64, tags []string, rate float6
 }
 
 func (s *otelStatter) Incr(name string, tags []string, rate float64) error {
-	if s.useCounters {
+	if s.shouldUseOTelCounters() {
 		c, err := s.getCounter(name)
 		if err != nil {
 			return err
