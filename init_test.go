@@ -1,4 +1,4 @@
-package metrics
+package otel
 
 import (
 	"context"

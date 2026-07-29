@@ -1,6 +1,6 @@
-// Package metrics exposes a small metrics API backed exclusively by
+// Package otel exposes a small metrics API backed exclusively by
 // OpenTelemetry.
-package metrics
+package otel
 
 import (
 	"context"
