@@ -265,6 +265,8 @@ type record struct {
 	binds     map[string]any
 	ctx       context.Context
 	span      trace.Span
+	ctxRef    *context.Context
+	parentCtx context.Context
 	once      sync.Once
 }
 
@@ -280,13 +282,15 @@ func Record(name string, tags ...any) Recorder {
 }
 
 // Trace starts measuring an operation, creates a span, and replaces ctx with
-// the span-bearing context.
+// the span-bearing context until Done restores its previous value.
 func Trace(ctx *context.Context, name string, tags ...any) Recorder {
 	return Record(name, tags...).BindCtx(ctx)
 }
 
 func (r *record) Done(tags ...any) {
 	r.once.Do(func() {
+		defer r.restoreContext()
+
 		finalTags := r.finishTags(tags...)
 		if r.span != nil {
 			for key, value := range finalTags {
@@ -323,14 +327,23 @@ func (r *record) WithSpan(ctx context.Context) Recorder {
 	return r
 }
 
-// BindCtx creates a span and replaces ctx with the span-bearing context.
+// BindCtx creates a span and replaces ctx with the span-bearing context until
+// Done restores its previous value.
 func (r *record) BindCtx(ctx *context.Context) Recorder {
 	if ctx == nil {
 		return r.WithSpan(nil)
 	}
+	r.ctxRef = ctx
+	r.parentCtx = *ctx
 	r.WithSpan(*ctx)
 	*ctx = r.Context()
 	return r
+}
+
+func (r *record) restoreContext() {
+	if r.ctxRef != nil {
+		*r.ctxRef = r.parentCtx
+	}
 }
 
 func (r *record) Context() context.Context {

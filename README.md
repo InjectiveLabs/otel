@@ -199,7 +199,8 @@ original context through `Context`; duration metrics continue to work.
 
 For the compact deferred form, `Trace` combines `Record` and `BindCtx`: it
 creates a span and replaces the supplied context with its span-bearing context
-before `Done` is deferred:
+before `Done` is deferred. `Done` ends the span and restores the previous
+context:
 
 ```go
 defer metrics.Trace(&runnerCtx, "orchestrator-run", "backend", backend).
@@ -207,4 +208,16 @@ defer metrics.Trace(&runnerCtx, "orchestrator-run", "backend", backend).
 	Done()
 
 return runNextOperation(runnerCtx)
+```
+
+Restoring the context makes sequential scopes siblings:
+
+```go
+first := metrics.Trace(&ctx, "first")
+runFirst(ctx)
+first.Done() // ctx returns to the parent span
+
+second := metrics.Trace(&ctx, "second")
+runSecond(ctx)
+second.Done() // ctx returns to the same parent span
 ```

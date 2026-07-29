@@ -98,7 +98,7 @@ func TestRecordDoneIsIdempotent(t *testing.T) {
 	rec.Done()
 }
 
-func TestTraceUpdatesContextForFollowingFunction(t *testing.T) {
+func TestTraceRestoresParentContextForFollowingFunction(t *testing.T) {
 	exporter := tracetest.NewInMemoryExporter()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
 	previousProvider := otel.GetTracerProvider()
@@ -112,27 +112,40 @@ func TestTraceUpdatesContextForFollowingFunction(t *testing.T) {
 
 	var (
 		parentSpanContext trace.SpanContext
+		firstSpanContext  trace.SpanContext
 		childSpanContext  trace.SpanContext
 	)
-	func() {
-		ctx := context.Background()
-		var err error
-		defer Trace(&ctx, "parent", "foo", "bar").
-			BindErr(&err).
-			Done()
+	ctx := context.Background()
+	parent := Trace(&ctx, "parent", "foo", "bar")
+	parentSpanContext = trace.SpanContextFromContext(ctx)
 
-		parentSpanContext = trace.SpanContextFromContext(ctx)
-		childSpanContext = recordFollowingFunction(ctx)
-	}()
+	first := Trace(&ctx, "first-child")
+	firstSpanContext = trace.SpanContextFromContext(ctx)
+	first.Done()
+
+	require.Equal(
+		t,
+		parentSpanContext.SpanID(),
+		trace.SpanContextFromContext(ctx).SpanID(),
+	)
+
+	childSpanContext = recordFollowingFunction(ctx)
+	parent.Done()
 
 	require.True(t, parentSpanContext.IsValid())
+	require.True(t, firstSpanContext.IsValid())
 	require.True(t, childSpanContext.IsValid())
+	require.Equal(t, parentSpanContext.TraceID(), firstSpanContext.TraceID())
 	require.Equal(t, parentSpanContext.TraceID(), childSpanContext.TraceID())
+	require.NotEqual(t, parentSpanContext.SpanID(), firstSpanContext.SpanID())
 	require.NotEqual(t, parentSpanContext.SpanID(), childSpanContext.SpanID())
+	require.False(t, trace.SpanContextFromContext(ctx).IsValid())
 
 	spans := exporter.GetSpans()
-	require.Len(t, spans, 2)
+	require.Len(t, spans, 3)
+	firstSpan := findSpan(t, spans, "first-child")
 	childSpan := findSpan(t, spans, "child")
+	require.Equal(t, parentSpanContext.SpanID(), firstSpan.Parent.SpanID())
 	require.Equal(t, parentSpanContext.SpanID(), childSpan.Parent.SpanID())
 }
 
