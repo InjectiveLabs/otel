@@ -282,6 +282,11 @@ func getFuncNameFromPtr(ptr uintptr) string {
 
 type Tags map[string]string
 
+// ToMap exposes tags as a string map.
+func (t Tags) ToMap() map[string]string {
+	return t
+}
+
 func MergeTags(original Tags, src ...Tags) Tags {
 	dst := make(Tags)
 	for k, v := range original {

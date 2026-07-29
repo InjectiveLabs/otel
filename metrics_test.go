@@ -106,6 +106,18 @@ func TestToString(t *testing.T) {
 	}
 }
 
+func TestTagsToMap(t *testing.T) {
+	var _ interface{ ToMap() map[string]string } = Tags{}
+
+	tags := Tags{"market": "inj-usdt"}
+	tagMap := tags.ToMap()
+
+	require.Equal(t, map[string]string{"market": "inj-usdt"}, tagMap)
+
+	tagMap["side"] = "buy"
+	require.Equal(t, "buy", tags["side"])
+}
+
 func record(t *testing.T) *statterRecorder {
 	t.Helper()
 	var rec statterRecorder
