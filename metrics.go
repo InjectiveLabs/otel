@@ -287,6 +287,31 @@ func Trace(ctx *context.Context, name string, tags ...any) Recorder {
 	return Record(name, tags...).BindCtx(ctx)
 }
 
+// Span records an operation inside a child span and passes its context to fn.
+func Span(
+	ctx context.Context,
+	name string,
+	fn func(context.Context),
+	tags ...any,
+) {
+	rec := Record(name, tags...).WithSpan(ctx)
+	defer rec.Done()
+	fn(rec.Context())
+}
+
+// SpanErr records an operation inside a child span, passes its context to fn,
+// and binds the returned error to the span and duration metric.
+func SpanErr(
+	ctx context.Context,
+	name string,
+	fn func(context.Context) error,
+	tags ...any,
+) (err error) {
+	rec := Record(name, tags...).WithSpan(ctx).BindErr(&err)
+	defer rec.Done()
+	return fn(rec.Context())
+}
+
 func (r *record) Done(tags ...any) {
 	r.once.Do(func() {
 		defer r.restoreContext()

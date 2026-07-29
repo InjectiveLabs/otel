@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -99,16 +100,7 @@ func TestRecordDoneIsIdempotent(t *testing.T) {
 }
 
 func TestTraceRestoresParentContextForFollowingFunction(t *testing.T) {
-	exporter := tracetest.NewInMemoryExporter()
-	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
-	previousProvider := otel.GetTracerProvider()
-	otel.SetTracerProvider(provider)
-	tracingEnabled.Store(true)
-	t.Cleanup(func() {
-		tracingEnabled.Store(false)
-		otel.SetTracerProvider(previousProvider)
-		require.NoError(t, provider.Shutdown(context.Background()))
-	})
+	exporter := setupTracingTest(t)
 
 	var (
 		parentSpanContext trace.SpanContext
@@ -129,7 +121,9 @@ func TestTraceRestoresParentContextForFollowingFunction(t *testing.T) {
 		trace.SpanContextFromContext(ctx).SpanID(),
 	)
 
-	childSpanContext = recordFollowingFunction(ctx)
+	Span(ctx, "child", func(ctx context.Context) {
+		childSpanContext = trace.SpanContextFromContext(ctx)
+	})
 	parent.Done()
 
 	require.True(t, parentSpanContext.IsValid())
@@ -149,10 +143,43 @@ func TestTraceRestoresParentContextForFollowingFunction(t *testing.T) {
 	require.Equal(t, parentSpanContext.SpanID(), childSpan.Parent.SpanID())
 }
 
-func recordFollowingFunction(ctx context.Context) trace.SpanContext {
-	rec := Record("child").WithSpan(ctx)
-	defer rec.Done()
-	return trace.SpanContextFromContext(rec.Context())
+func TestSpanErrReturnsAndBindsCallbackError(t *testing.T) {
+	exporter := setupTracingTest(t)
+	expectedErr := errors.New("callback failed")
+	var callbackSpanContext trace.SpanContext
+
+	err := SpanErr(
+		context.Background(),
+		"operation",
+		func(ctx context.Context) error {
+			callbackSpanContext = trace.SpanContextFromContext(ctx)
+			return expectedErr
+		},
+		"foo", "bar",
+	)
+
+	require.ErrorIs(t, err, expectedErr)
+	require.True(t, callbackSpanContext.IsValid())
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 1)
+	require.Contains(t, spans[0].Attributes, attribute.String("foo", "bar"))
+	require.Contains(t, spans[0].Attributes, attribute.String("error", "true"))
+}
+
+func setupTracingTest(t *testing.T) *tracetest.InMemoryExporter {
+	t.Helper()
+	exporter := tracetest.NewInMemoryExporter()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	previousProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	tracingEnabled.Store(true)
+	t.Cleanup(func() {
+		tracingEnabled.Store(false)
+		otel.SetTracerProvider(previousProvider)
+		require.NoError(t, provider.Shutdown(context.Background()))
+	})
+	return exporter
 }
 
 func findSpan(

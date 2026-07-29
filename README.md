@@ -221,3 +221,24 @@ second := metrics.Trace(&ctx, "second")
 runSecond(ctx)
 second.Done() // ctx returns to the same parent span
 ```
+
+For child operations, prefer the structured `Span` helper. It passes the child
+context to the callback and always ends the span when the callback returns:
+
+```go
+metrics.Span(ctx, "child", func(ctx context.Context) {
+	runChild(ctx)
+}, "foo", "bar")
+```
+
+Use `SpanErr` when the callback returns an error. It returns the same error and
+binds it to the span and duration metric:
+
+```go
+err := metrics.SpanErr(ctx, "child", func(ctx context.Context) error {
+	return runChild(ctx)
+}, "foo", "bar")
+```
+
+Both helpers receive the parent context by value, so separate invocations
+create sibling spans without mutating the caller's context.
