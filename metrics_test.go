@@ -98,7 +98,7 @@ func TestRecordDoneIsIdempotent(t *testing.T) {
 	rec.Done()
 }
 
-func TestBindCtxUpdatesContextForFollowingFunction(t *testing.T) {
+func TestTraceUpdatesContextForFollowingFunction(t *testing.T) {
 	exporter := tracetest.NewInMemoryExporter()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
 	previousProvider := otel.GetTracerProvider()
@@ -117,9 +117,8 @@ func TestBindCtxUpdatesContextForFollowingFunction(t *testing.T) {
 	func() {
 		ctx := context.Background()
 		var err error
-		defer Record("parent", "foo", "bar").
+		defer Trace(&ctx, "parent", "foo", "bar").
 			BindErr(&err).
-			BindCtx(&ctx).
 			Done()
 
 		parentSpanContext = trace.SpanContextFromContext(ctx)

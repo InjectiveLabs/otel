@@ -279,6 +279,12 @@ func Record(name string, tags ...any) Recorder {
 	}
 }
 
+// Trace starts measuring an operation, creates a span, and replaces ctx with
+// the span-bearing context.
+func Trace(ctx *context.Context, name string, tags ...any) Recorder {
+	return Record(name, tags...).BindCtx(ctx)
+}
+
 func (r *record) Done(tags ...any) {
 	r.once.Do(func() {
 		finalTags := r.finishTags(tags...)
