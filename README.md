@@ -196,3 +196,15 @@ then keeps both services in the same trace.
 
 When tracing is disabled, `WithSpan` does not create a span and returns the
 original context through `Context`; duration metrics continue to work.
+
+For the compact deferred form, `BindCtx` creates a span and replaces the
+supplied context with its span-bearing context before `Done` is deferred:
+
+```go
+defer metrics.Record("orchestrator-run", "backend", backend).
+	BindErr(&err).
+	BindCtx(&runnerCtx).
+	Done()
+
+return runNextOperation(runnerCtx)
+```

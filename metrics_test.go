@@ -11,6 +11,9 @@ import (
 	otelmetric "go.opentelemetry.io/otel/metric"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func TestApprovedReportsCompile(t *testing.T) {
@@ -93,6 +96,66 @@ func TestRecordDoneIsIdempotent(t *testing.T) {
 	rec.Done()
 	rec.Done()
 	rec.Done()
+}
+
+func TestBindCtxUpdatesContextForFollowingFunction(t *testing.T) {
+	exporter := tracetest.NewInMemoryExporter()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	previousProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(provider)
+	tracingEnabled.Store(true)
+	t.Cleanup(func() {
+		tracingEnabled.Store(false)
+		otel.SetTracerProvider(previousProvider)
+		require.NoError(t, provider.Shutdown(context.Background()))
+	})
+
+	var (
+		parentSpanContext trace.SpanContext
+		childSpanContext  trace.SpanContext
+	)
+	func() {
+		ctx := context.Background()
+		var err error
+		defer Record("parent", "foo", "bar").
+			BindErr(&err).
+			BindCtx(&ctx).
+			Done()
+
+		parentSpanContext = trace.SpanContextFromContext(ctx)
+		childSpanContext = recordFollowingFunction(ctx)
+	}()
+
+	require.True(t, parentSpanContext.IsValid())
+	require.True(t, childSpanContext.IsValid())
+	require.Equal(t, parentSpanContext.TraceID(), childSpanContext.TraceID())
+	require.NotEqual(t, parentSpanContext.SpanID(), childSpanContext.SpanID())
+
+	spans := exporter.GetSpans()
+	require.Len(t, spans, 2)
+	childSpan := findSpan(t, spans, "child")
+	require.Equal(t, parentSpanContext.SpanID(), childSpan.Parent.SpanID())
+}
+
+func recordFollowingFunction(ctx context.Context) trace.SpanContext {
+	rec := Record("child").WithSpan(ctx)
+	defer rec.Done()
+	return trace.SpanContextFromContext(rec.Context())
+}
+
+func findSpan(
+	t *testing.T,
+	spans tracetest.SpanStubs,
+	name string,
+) tracetest.SpanStub {
+	t.Helper()
+	for _, span := range spans {
+		if span.Name == name {
+			return span
+		}
+	}
+	t.Fatalf("span %q not found", name)
+	return tracetest.SpanStub{}
 }
 
 func TestEventResolvesBoundTagsForEveryEmission(t *testing.T) {

@@ -253,6 +253,7 @@ type Recorder interface {
 	BindErr(*error) Recorder
 	Bind(key string, value any) Recorder
 	WithSpan(ctx context.Context) Recorder
+	BindCtx(ctx *context.Context) Recorder
 	Context() context.Context
 }
 
@@ -313,6 +314,16 @@ func (r *record) WithSpan(ctx context.Context) Recorder {
 		r.span.End()
 	}
 	r.ctx, r.span = otel.Tracer(instrumentationName).Start(ctx, r.name)
+	return r
+}
+
+// BindCtx creates a span and replaces ctx with the span-bearing context.
+func (r *record) BindCtx(ctx *context.Context) Recorder {
+	if ctx == nil {
+		return r.WithSpan(nil)
+	}
+	r.WithSpan(*ctx)
+	*ctx = r.Context()
 	return r
 }
 
