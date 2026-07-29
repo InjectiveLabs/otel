@@ -42,6 +42,8 @@ This reads:
 - `INDEXER_STATSD_PREFIX`: metric prefix and OpenTelemetry `service.name`.
 - `INDEXER_STATSD_OTEL_INSECURE`: disable transport security.
 - `INDEXER_STATSD_TRACING_ENABLED`: enable trace export; defaults to `true`.
+- `INDEXER_STATSD_REPORT_CANCELED_AS_ERROR`: classify `context.Canceled` as an
+  error; defaults to `false`.
 - `INDEXER_STATSD_DISABLED`: disable metrics, tracing, exporters, and client
   connections; defaults to `true`.
 
@@ -181,8 +183,11 @@ keep the propagated trace ID.
 
 `Done` ends the span, records the duration histogram, and attaches the final
 tags as span attributes. `BindErr` adds an `error=true` or `error=false`
-attribute. Because deferred calls run last-in, first-out, each child span ends
-before the root span.
+attribute. By default, `context.Canceled` produces `error=false`, while
+`context.DeadlineExceeded` remains an error. Set
+`REPORT_CANCELED_AS_ERROR=true` if cancellations must count as errors. Because
+deferred calls run last-in, first-out, each child span ends before the root
+span.
 
 For propagation across services, pass `rec.Context()` to an instrumented
 HTTP/gRPC client. On the receiving service, pass the context created by its

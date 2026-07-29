@@ -58,6 +58,36 @@ func TestRecordBindsNilErrorAsFalse(t *testing.T) {
 	require.Equal(t, "false", rec.finishTags()["error"])
 }
 
+func TestBindErrIgnoresCanceledByDefault(t *testing.T) {
+	err := context.Canceled
+
+	rec := Record("test.track").BindErr(&err).(*record)
+	event := Event("test.event").BindErr(&err).(*event)
+
+	require.Equal(t, "false", rec.finishTags()["error"])
+	require.Equal(t, "false", event.finishTags()["error"])
+}
+
+func TestBindErrCanReportCanceledAsError(t *testing.T) {
+	reportCanceledAsError.Store(true)
+	t.Cleanup(func() {
+		reportCanceledAsError.Store(false)
+	})
+	err := context.Canceled
+
+	rec := Record("test.track").BindErr(&err).(*record)
+
+	require.Equal(t, "true", rec.finishTags()["error"])
+}
+
+func TestBindErrReportsDeadlineExceededAsError(t *testing.T) {
+	err := context.DeadlineExceeded
+
+	rec := Record("test.track").BindErr(&err).(*record)
+
+	require.Equal(t, "true", rec.finishTags()["error"])
+}
+
 func TestRecordDoneIsIdempotent(t *testing.T) {
 	rec := Record("test.track")
 	rec.Done()

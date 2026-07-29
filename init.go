@@ -31,11 +31,12 @@ const backgroundShutdownTimeout = 10 * time.Second
 
 // Config controls the OTLP metrics and tracing exporters.
 type Config struct {
-	Endpoint       string
-	Prefix         string
-	Insecure       bool
-	TracingEnabled bool
-	Disabled       bool
+	Endpoint              string
+	Prefix                string
+	Insecure              bool
+	TracingEnabled        bool
+	ReportCanceledAsError bool
+	Disabled              bool
 }
 
 // Shutdown stops the exporters and flushes pending telemetry.
@@ -57,6 +58,9 @@ func ConfigFromEnv(prefix string) (Config, error) {
 		return Config{}, err
 	}
 	if cfg.TracingEnabled, err = boolFromEnv(prefix, "TRACING_ENABLED", true); err != nil {
+		return Config{}, err
+	}
+	if cfg.ReportCanceledAsError, err = boolFromEnv(prefix, "REPORT_CANCELED_AS_ERROR", false); err != nil {
 		return Config{}, err
 	}
 	if cfg.Disabled, err = boolFromEnv(prefix, "DISABLED", true); err != nil {
@@ -188,6 +192,7 @@ func Init(ctx context.Context, cfg Config) (Shutdown, error) {
 
 	cfg.Endpoint = strings.TrimSpace(cfg.Endpoint)
 	cfg.Prefix = strings.Trim(strings.TrimSpace(cfg.Prefix), ".")
+	reportCanceledAsError.Store(cfg.ReportCanceledAsError)
 
 	if cfg.Disabled {
 		metricsEnabled.Store(false)

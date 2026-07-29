@@ -15,6 +15,7 @@ func TestConfigFromEnv(t *testing.T) {
 	t.Setenv("INDEXER_STATSD_PREFIX", "indexer-rfq-api")
 	t.Setenv("INDEXER_STATSD_OTEL_INSECURE", "true")
 	t.Setenv("INDEXER_STATSD_TRACING_ENABLED", "false")
+	t.Setenv("INDEXER_STATSD_REPORT_CANCELED_AS_ERROR", "true")
 	t.Setenv("INDEXER_STATSD_DISABLED", "false")
 	t.Setenv("INDEXER_STATSD_OTEL_USE_COUNTERS", "false")
 	t.Setenv("INDEXER_STATSD_MOCKING", "true")
@@ -23,11 +24,12 @@ func TestConfigFromEnv(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, Config{
-		Endpoint:       "signoz-k8s-infra-otel-agent.addons:4317",
-		Prefix:         "indexer-rfq-api",
-		Insecure:       true,
-		TracingEnabled: false,
-		Disabled:       false,
+		Endpoint:              "signoz-k8s-infra-otel-agent.addons:4317",
+		Prefix:                "indexer-rfq-api",
+		Insecure:              true,
+		TracingEnabled:        false,
+		ReportCanceledAsError: true,
+		Disabled:              false,
 	}, cfg)
 }
 
@@ -36,6 +38,7 @@ func TestConfigFromEnvDefaults(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, cfg.TracingEnabled)
+	require.False(t, cfg.ReportCanceledAsError)
 	require.True(t, cfg.Disabled)
 }
 

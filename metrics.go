@@ -4,6 +4,7 @@ package otel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -36,9 +37,10 @@ var instruments = instrumentRegistry{
 }
 
 var (
-	metricsEnabled atomic.Bool
-	tracingEnabled atomic.Bool
-	metricPrefix   atomic.Value
+	metricsEnabled        atomic.Bool
+	tracingEnabled        atomic.Bool
+	reportCanceledAsError atomic.Bool
+	metricPrefix          atomic.Value
 )
 
 type instrumentRegistry struct {
@@ -325,7 +327,13 @@ func (r *record) finishTags(tags ...any) tagSet {
 func finishTags(original tagSet, binds map[string]any, err *error, values ...any) tagSet {
 	finalTags := mergeTags(original, combineTags(values...))
 	if err != nil {
-		finalTags["error"] = strconv.FormatBool(*err != nil)
+		isError := *err != nil
+		if isError &&
+			!reportCanceledAsError.Load() &&
+			errors.Is(*err, context.Canceled) {
+			isError = false
+		}
+		finalTags["error"] = strconv.FormatBool(isError)
 	}
 	for key, bound := range binds {
 		if value, ok := ToString(bound); ok {
