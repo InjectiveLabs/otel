@@ -93,10 +93,6 @@ func TestToString(t *testing.T) {
 		{"*float32", func() *float32 { f := float32(42.42); return &f }(), "42.42", true},
 		{"*float64", func() *float64 { f := float64(42.42); return &f }(), "42.42", true},
 		{"*bool", func() *bool { b := true; return &b }(), "true", true},
-		{"nil *string", (*string)(nil), "nil", true},
-		{"nil *int", (*int)(nil), "nil", true},
-		{"nil *bool", (*bool)(nil), "nil", true},
-		{"stringer", stringerTag("custom"), "tag:custom", true},
 		{"nil", nil, "nil", true},
 		{"unsupported type", struct{}{}, "", false},
 	}
@@ -108,12 +104,6 @@ func TestToString(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
-}
-
-type stringerTag string
-
-func (t stringerTag) String() string {
-	return "tag:" + string(t)
 }
 
 func record(t *testing.T) *statterRecorder {

@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	log "github.com/InjectiveLabs/suplog"
@@ -166,28 +165,26 @@ func reportTiming(ctx context.Context, fn string, tags ...Tags) (context.Context
 	tagArray = append(tagArray, getSingleTag("func_name", fn))
 
 	doneC := make(chan struct{})
-	if !disableStuckFuncReport.Load() {
-		go func(name string, start time.Time) {
-			timeout := time.NewTimer(config.StuckFunctionTimeout)
-			defer timeout.Stop()
+	go func(name string, start time.Time) {
+		timeout := time.NewTimer(config.StuckFunctionTimeout)
+		defer timeout.Stop()
 
-			select {
-			case <-doneC:
-				return
-			case <-timeout.C:
-				clientMux.RLock()
-				defer clientMux.RUnlock()
+		select {
+		case <-doneC:
+			return
+		case <-timeout.C:
+			clientMux.RLock()
+			defer clientMux.RUnlock()
 
-				err := fmt.Errorf("detected stuck function: %s stuck for %v", name, time.Since(start))
-				fmt.Println(err)
-				client.Incr("func.stuck", tagArray, 1)
-				if span != nil {
-					span.SetStatus(codes.Error, "stuck")
-					span.End()
-				}
+			err := fmt.Errorf("detected stuck function: %s stuck for %v", name, time.Since(start))
+			fmt.Println(err)
+			client.Incr("func.stuck", tagArray, 1)
+			if span != nil {
+				span.SetStatus(codes.Error, "stuck")
+				span.End()
 			}
-		}(fn, t)
-	}
+		}
+	}(fn, t)
 
 	return spanCtx, func(stopTags ...Tags) {
 		d := time.Since(t)
@@ -215,24 +212,21 @@ func ReportClosureFuncTiming(name string, tags ...Tags) StopTimerFunc {
 	tagArray = append(tagArray, getSingleTag("func_name", name))
 
 	doneC := make(chan struct{})
+	go func(name string, start time.Time) {
+		timeout := time.NewTimer(config.StuckFunctionTimeout)
+		defer timeout.Stop()
 
-	if !disableStuckFuncReport.Load() {
-		go func(name string, start time.Time) {
-			timeout := time.NewTimer(config.StuckFunctionTimeout)
-			defer timeout.Stop()
+		select {
+		case <-doneC:
+			return
+		case <-timeout.C:
+			clientMux.RLock()
+			defer clientMux.RUnlock()
 
-			select {
-			case <-doneC:
-				return
-			case <-timeout.C:
-				clientMux.RLock()
-				defer clientMux.RUnlock()
-
-				log.Warningf("detected stuck function: %s stuck for %v", name, time.Since(start))
-				client.Incr("func.stuck", tagArray, 1)
-			}
-		}(name, t)
-	}
+			log.Warningf("detected stuck function: %s stuck for %v", name, time.Since(start))
+			client.Incr("func.stuck", tagArray, 1)
+		}
+	}(name, t)
 
 	return func(stopTags ...Tags) {
 		d := time.Since(t)
@@ -438,108 +432,65 @@ func ToString(i interface{}) (v string, ok bool) {
 	case float64:
 		v = strconv.FormatFloat(x, 'f', -1, 64)
 	case *string:
-		if x == nil {
-			v = "nil"
-		} else {
+		if x != nil {
 			v = *x
 		}
 	case *int:
-		if x == nil {
-			v = "nil"
-		} else {
+		if x != nil {
 			v = strconv.FormatInt(int64(*x), 10)
 		}
 	case *int8:
-		if x == nil {
-			v = "nil"
-		} else {
+		if x != nil {
 			v = strconv.FormatInt(int64(*x), 10)
 		}
 	case *int16:
-		if x == nil {
-			v = "nil"
-		} else {
+		if x != nil {
 			v = strconv.FormatInt(int64(*x), 10)
 		}
 	case *int32:
-		if x == nil {
-			v = "nil"
-		} else {
+		if x != nil {
 			v = strconv.FormatInt(int64(*x), 10)
 		}
 	case *int64:
-		if x == nil {
-			v = "nil"
-		} else {
+		if x != nil {
 			v = strconv.FormatInt(*x, 10)
 		}
 	case *uint:
-		if x == nil {
-			v = "nil"
-		} else {
+		if x != nil {
 			v = strconv.FormatUint(uint64(*x), 10)
 		}
 	case *uint8:
-		if x == nil {
-			v = "nil"
-		} else {
+		if x != nil {
 			v = strconv.FormatUint(uint64(*x), 10)
 		}
 	case *uint16:
-		if x == nil {
-			v = "nil"
-		} else {
+		if x != nil {
 			v = strconv.FormatUint(uint64(*x), 10)
 		}
 	case *uint32:
-		if x == nil {
-			v = "nil"
-		} else {
+		if x != nil {
 			v = strconv.FormatUint(uint64(*x), 10)
 		}
 	case *uint64:
-		if x == nil {
-			v = "nil"
-		} else {
+		if x != nil {
 			v = strconv.FormatUint(*x, 10)
 		}
 	case *float32:
-		if x == nil {
-			v = "nil"
-		} else {
+		if x != nil {
 			v = strconv.FormatFloat(float64(*x), 'f', -1, 32)
 		}
 	case *float64:
-		if x == nil {
-			v = "nil"
-		} else {
+		if x != nil {
 			v = strconv.FormatFloat(*x, 'f', -1, 64)
 		}
 	case bool:
 		v = strconv.FormatBool(x)
 	case *bool:
-		if x == nil {
-			v = "nil"
-		} else {
-			v = strconv.FormatBool(*x)
-		}
-	case fmt.Stringer:
-		rv := reflect.ValueOf(x)
-		if rv.Kind() == reflect.Ptr && rv.IsNil() {
-			v = "nil"
-		} else {
-			v = x.String()
-		}
+		v = strconv.FormatBool(*x)
 	case nil:
 		v = "nil"
 	default:
 		ok = false
 	}
 	return v, ok
-}
-
-var disableStuckFuncReport atomic.Bool
-
-func DisableStuckFuncReport() {
-	disableStuckFuncReport.Store(true)
 }

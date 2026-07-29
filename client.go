@@ -39,10 +39,6 @@ var (
 	mixPanelClient          *mixpanel.ApiClient
 )
 
-func Tracer() trace.Tracer {
-	return tracer
-}
-
 type StatterConfig struct {
 	Addr                   string            // localhost:8125
 	Prefix                 string            // metrics prefix
