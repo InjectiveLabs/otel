@@ -110,18 +110,84 @@ Pointer values passed to `Bind` are resolved when the metric is emitted.
 
 ## Spans
 
-`WithSpan` uses the global OpenTelemetry tracer provider. `Context` returns the
-span-bearing context.
+`Record` measures duration and emits a histogram. Adding `WithSpan` also creates
+a span with the same name. The context returned by `Context` contains that span
+and must be passed to child operations so OpenTelemetry can place their spans in
+the same trace.
 
 ```go
-func Handle(ctx context.Context) (err error) {
-	rec := metrics.Record("handler.run").
+func HandleOrder(ctx context.Context, orderID string) (err error) {
+	root := metrics.Record("order.handle", "order_id", orderID).
 		WithSpan(ctx).
 		BindErr(&err)
+	defer root.Done()
 
-	ctx = rec.Context()
+	// Every operation receiving this context becomes a child of order.handle.
+	ctx = root.Context()
+
+	order, err := loadOrder(ctx, orderID)
+	if err != nil {
+		return err
+	}
+	if err = validateOrder(ctx, order); err != nil {
+		return err
+	}
+	return persistOrder(ctx, order)
+}
+
+func loadOrder(ctx context.Context, orderID string) (order *Order, err error) {
+	rec := metrics.Record("order.load", "order_id", orderID).
+		WithSpan(ctx).
+		BindErr(&err)
 	defer rec.Done()
 
-	return handle(ctx)
+	// Pass the child context further down if the repository is instrumented.
+	return repository.Load(rec.Context(), orderID)
+}
+
+func validateOrder(ctx context.Context, order *Order) (err error) {
+	rec := metrics.Record("order.validate").
+		WithSpan(ctx).
+		BindErr(&err).
+		Bind("market", &order.Market)
+	defer rec.Done()
+
+	return rules.Validate(rec.Context(), order)
+}
+
+func persistOrder(ctx context.Context, order *Order) (err error) {
+	rec := metrics.Record("order.persist").
+		WithSpan(ctx).
+		BindErr(&err)
+	defer rec.Done("market", order.Market)
+
+	return repository.Save(rec.Context(), order)
 }
 ```
+
+If the initial `ctx` has no span, the resulting trace has one root span and
+three child spans:
+
+```text
+order.handle
+├── order.load
+├── order.validate
+└── order.persist
+```
+
+If the initial context came from instrumented HTTP/gRPC middleware,
+`order.handle` is instead a child of the remote span, while all four operations
+keep the propagated trace ID.
+
+`Done` ends the span, records the duration histogram, and attaches the final
+tags as span attributes. `BindErr` adds an `error=true` or `error=false`
+attribute. Because deferred calls run last-in, first-out, each child span ends
+before the root span.
+
+For propagation across services, pass `rec.Context()` to an instrumented
+HTTP/gRPC client. On the receiving service, pass the context created by its
+OpenTelemetry middleware to `WithSpan`. The propagator configured by `Init`
+then keeps both services in the same trace.
+
+When tracing is disabled, `WithSpan` does not create a span and returns the
+original context through `Context`; duration metrics continue to work.
