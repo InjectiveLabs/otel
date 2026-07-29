@@ -167,16 +167,55 @@ func TestSpanErrReturnsAndBindsCallbackError(t *testing.T) {
 	require.Contains(t, spans[0].Attributes, attribute.String("error", "true"))
 }
 
+func TestPrivateTracerContinuesTraceFromGlobalProvider(t *testing.T) {
+	legacyExporter := tracetest.NewInMemoryExporter()
+	legacyProvider := sdktrace.NewTracerProvider(
+		sdktrace.WithSyncer(legacyExporter),
+	)
+	previousProvider := otel.GetTracerProvider()
+	otel.SetTracerProvider(legacyProvider)
+	t.Cleanup(func() {
+		otel.SetTracerProvider(previousProvider)
+		require.NoError(t, legacyProvider.Shutdown(context.Background()))
+	})
+
+	privateExporter := setupTracingTest(t)
+	ctx, parent := legacyProvider.Tracer("legacy").Start(
+		context.Background(),
+		"legacy-parent",
+	)
+	parentSpanContext := parent.SpanContext()
+
+	Span(ctx, "private-child", func(ctx context.Context) {
+		require.Equal(
+			t,
+			parentSpanContext.TraceID(),
+			trace.SpanContextFromContext(ctx).TraceID(),
+		)
+	})
+	parent.End()
+
+	require.Same(t, legacyProvider, otel.GetTracerProvider())
+	privateSpans := privateExporter.GetSpans()
+	require.Len(t, privateSpans, 1)
+	require.Equal(
+		t,
+		parentSpanContext.SpanID(),
+		privateSpans[0].Parent.SpanID(),
+	)
+}
+
 func setupTracingTest(t *testing.T) *tracetest.InMemoryExporter {
 	t.Helper()
 	exporter := tracetest.NewInMemoryExporter()
 	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
-	previousProvider := otel.GetTracerProvider()
-	otel.SetTracerProvider(provider)
+	previousTelemetry := activeTelemetry.Swap(&telemetryState{
+		tracer: provider.Tracer(instrumentationName),
+	})
 	tracingEnabled.Store(true)
 	t.Cleanup(func() {
 		tracingEnabled.Store(false)
-		otel.SetTracerProvider(previousProvider)
+		activeTelemetry.Store(previousTelemetry)
 		require.NoError(t, provider.Shutdown(context.Background()))
 	})
 	return exporter
@@ -238,16 +277,17 @@ func TestToStringMatchesV2Contract(t *testing.T) {
 	}
 }
 
-func TestMetricsUseGlobalOTelProvider(t *testing.T) {
+func TestMetricsUsePrivateOTelProvider(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-	previousProvider := otel.GetMeterProvider()
-	otel.SetMeterProvider(provider)
+	previousTelemetry := activeTelemetry.Swap(&telemetryState{
+		meter: provider.Meter(instrumentationName),
+	})
 	metricsEnabled.Store(true)
 	metricPrefix.Store("")
 	t.Cleanup(func() {
 		require.NoError(t, provider.Shutdown(context.Background()))
-		otel.SetMeterProvider(previousProvider)
+		activeTelemetry.Store(previousTelemetry)
 		metricsEnabled.Store(false)
 		tracingEnabled.Store(false)
 		instruments = instrumentRegistry{

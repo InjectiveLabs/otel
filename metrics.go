@@ -12,7 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/trace"
@@ -41,7 +40,13 @@ var (
 	tracingEnabled        atomic.Bool
 	reportCanceledAsError atomic.Bool
 	metricPrefix          atomic.Value
+	activeTelemetry       atomic.Pointer[telemetryState]
 )
+
+type telemetryState struct {
+	meter  otelmetric.Meter
+	tracer trace.Tracer
+}
 
 type instrumentRegistry struct {
 	mu         sync.RWMutex
@@ -65,7 +70,11 @@ func (r *instrumentRegistry) counter(name string) (otelmetric.Int64Counter, erro
 		return counter, nil
 	}
 
-	counter, err := otel.Meter(instrumentationName).Int64Counter(name)
+	telemetry := activeTelemetry.Load()
+	if telemetry == nil || telemetry.meter == nil {
+		return nil, errors.New("OpenTelemetry meter is not initialized")
+	}
+	counter, err := telemetry.meter.Int64Counter(name)
 	if err != nil {
 		return nil, err
 	}
@@ -88,7 +97,11 @@ func (r *instrumentRegistry) gauge(name string) (otelmetric.Float64Gauge, error)
 		return gauge, nil
 	}
 
-	gauge, err := otel.Meter(instrumentationName).Float64Gauge(name)
+	telemetry := activeTelemetry.Load()
+	if telemetry == nil || telemetry.meter == nil {
+		return nil, errors.New("OpenTelemetry meter is not initialized")
+	}
+	gauge, err := telemetry.meter.Float64Gauge(name)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +124,11 @@ func (r *instrumentRegistry) histogram(name string) (otelmetric.Float64Histogram
 		return histogram, nil
 	}
 
-	histogram, err := otel.Meter(instrumentationName).Float64Histogram(
+	telemetry := activeTelemetry.Load()
+	if telemetry == nil || telemetry.meter == nil {
+		return nil, errors.New("OpenTelemetry meter is not initialized")
+	}
+	histogram, err := telemetry.meter.Float64Histogram(
 		name,
 		otelmetric.WithUnit("ms"),
 	)
@@ -348,7 +365,12 @@ func (r *record) WithSpan(ctx context.Context) Recorder {
 	if r.span != nil {
 		r.span.End()
 	}
-	r.ctx, r.span = otel.Tracer(instrumentationName).Start(ctx, r.name)
+	telemetry := activeTelemetry.Load()
+	if telemetry == nil || telemetry.tracer == nil {
+		r.ctx = ctx
+		return r
+	}
+	r.ctx, r.span = telemetry.tracer.Start(ctx, r.name)
 	return r
 }
 

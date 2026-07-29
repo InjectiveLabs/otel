@@ -183,7 +183,7 @@ func initBackground(
 	return shutdown, nil
 }
 
-// Init configures the global OpenTelemetry providers. When Disabled is true,
+// Init configures package-owned OpenTelemetry providers. When Disabled is true,
 // no exporter or client connection is created and metric operations are no-op.
 func Init(ctx context.Context, cfg Config) (Shutdown, error) {
 	if ctx == nil {
@@ -197,6 +197,7 @@ func Init(ctx context.Context, cfg Config) (Shutdown, error) {
 	if cfg.Disabled {
 		metricsEnabled.Store(false)
 		tracingEnabled.Store(false)
+		activeTelemetry.Store(nil)
 		return noopShutdown, nil
 	}
 	if cfg.Endpoint == "" {
@@ -255,15 +256,18 @@ func Init(ctx context.Context, cfg Config) (Shutdown, error) {
 		)
 	}
 
-	otel.SetMeterProvider(meterProvider)
+	telemetry := &telemetryState{
+		meter: meterProvider.Meter(instrumentationName),
+	}
 	if tracerProvider != nil {
-		otel.SetTracerProvider(tracerProvider)
+		telemetry.tracer = tracerProvider.Tracer(instrumentationName)
 		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 			propagation.TraceContext{},
 			propagation.Baggage{},
 		))
 	}
 
+	activeTelemetry.Store(telemetry)
 	metricPrefix.Store(cfg.Prefix)
 	instruments.reset()
 	metricsEnabled.Store(true)
@@ -281,6 +285,7 @@ func Init(ctx context.Context, cfg Config) (Shutdown, error) {
 			}
 			metricsEnabled.Store(false)
 			tracingEnabled.Store(false)
+			activeTelemetry.CompareAndSwap(telemetry, nil)
 
 			var traceErr error
 			if tracerProvider != nil {

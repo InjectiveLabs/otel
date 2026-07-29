@@ -8,6 +8,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	globalotel "go.opentelemetry.io/otel"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 func TestConfigFromEnv(t *testing.T) {
@@ -92,6 +95,40 @@ func TestInitValidatesEnabledConfig(t *testing.T) {
 		Endpoint: "collector:4317",
 	})
 	require.EqualError(t, err, "metrics prefix is required")
+}
+
+func TestInitDoesNotReplaceGlobalProviders(t *testing.T) {
+	globalMeterProvider := sdkmetric.NewMeterProvider()
+	globalTracerProvider := sdktrace.NewTracerProvider()
+	previousMeterProvider := globalotel.GetMeterProvider()
+	previousTracerProvider := globalotel.GetTracerProvider()
+	globalotel.SetMeterProvider(globalMeterProvider)
+	globalotel.SetTracerProvider(globalTracerProvider)
+	t.Cleanup(func() {
+		globalotel.SetMeterProvider(previousMeterProvider)
+		globalotel.SetTracerProvider(previousTracerProvider)
+		require.NoError(t, globalMeterProvider.Shutdown(context.Background()))
+		require.NoError(t, globalTracerProvider.Shutdown(context.Background()))
+	})
+
+	shutdown, err := Init(context.Background(), Config{
+		Endpoint:       "127.0.0.1:4317",
+		Prefix:         "service",
+		Insecure:       true,
+		TracingEnabled: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		shutdownCtx, cancel := context.WithTimeout(
+			context.Background(),
+			time.Second,
+		)
+		defer cancel()
+		_ = shutdown(shutdownCtx)
+	})
+
+	require.Same(t, globalMeterProvider, globalotel.GetMeterProvider())
+	require.Same(t, globalTracerProvider, globalotel.GetTracerProvider())
 }
 
 func TestInitFromEnvBackgroundRejectsInvalidInterval(t *testing.T) {

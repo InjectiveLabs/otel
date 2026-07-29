@@ -50,6 +50,12 @@ This reads:
 Legacy counter mode, mocking, Datadog, Mixpanel, and Bugsnag variables are not
 used.
 
+The metric and tracer providers are owned by this package and are not installed
+as OpenTelemetry global providers. This allows the package to run alongside
+another telemetry client without either initializer replacing the other's
+providers. `Init` only configures the global W3C trace-context and baggage
+propagator.
+
 For explicit configuration, use `metrics.Init(ctx, metrics.Config{...})` or
 `metrics.InitBackground(ctx, metrics.Config{...}, retryInterval)`.
 
