@@ -14,7 +14,7 @@ import metrics "github.com/InjectiveLabs/otel"
 Initialize the OTLP exporters from the environment:
 
 ```go
-shutdown, err := metrics.InitFromEnv(ctx, "INDEXER")
+shutdown, err := metrics.InitFromEnv(ctx, "APP")
 if err != nil {
 	return err
 }
@@ -25,12 +25,15 @@ To avoid blocking application startup while the collector is unavailable,
 initialize in the background and choose the retry interval:
 
 ```go
-shutdown, err := metrics.InitFromEnvBackground(ctx, "INDEXER", 30*time.Second)
+shutdown, err := metrics.InitFromEnvBackground(ctx, "APP", 30*time.Second)
 if err != nil {
 	return err
 }
 defer shutdown(context.Background())
 ```
+
+Pass an empty prefix to read `OTEL_*` variables, or a prefix such as `APP`
+to read `APP_OTEL_*`. Passing the full `APP_OTEL` prefix is also valid.
 
 This call returns before connecting. Initialization failures are sent to the
 global OpenTelemetry error handler and retried until `ctx` is canceled or
@@ -38,13 +41,13 @@ global OpenTelemetry error handler and retried until `ctx` is canceled or
 
 This reads:
 
-- `INDEXER_STATSD_ADDR`: OTLP/gRPC endpoint.
-- `INDEXER_STATSD_PREFIX`: metric prefix and OpenTelemetry `service.name`.
-- `INDEXER_STATSD_OTEL_INSECURE`: disable transport security.
-- `INDEXER_STATSD_TRACING_ENABLED`: enable trace export; defaults to `true`.
-- `INDEXER_STATSD_REPORT_CANCELED_AS_ERROR`: classify `context.Canceled` as an
+- `APP_OTEL_ADDR`: OTLP/gRPC endpoint.
+- `APP_OTEL_PREFIX`: metric prefix and OpenTelemetry `service.name`.
+- `APP_OTEL_INSECURE`: disable transport security.
+- `APP_OTEL_TRACING_DISABLED`: disable trace export; defaults to `false`.
+- `APP_OTEL_REPORT_CANCELED_AS_ERROR`: classify `context.Canceled` as an
   error; defaults to `false`.
-- `INDEXER_STATSD_DISABLED`: disable metrics, tracing, exporters, and client
+- `APP_OTEL_DISABLED`: disable metrics, tracing, exporters, and client
   connections; defaults to `true`.
 
 Legacy counter mode, mocking, Datadog, Mixpanel, and Bugsnag variables are not

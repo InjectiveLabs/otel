@@ -34,7 +34,7 @@ type Config struct {
 	Endpoint              string
 	Prefix                string
 	Insecure              bool
-	TracingEnabled        bool
+	TracingDisabled       bool
 	ReportCanceledAsError bool
 	Disabled              bool
 }
@@ -42,22 +42,22 @@ type Config struct {
 // Shutdown stops the exporters and flushes pending telemetry.
 type Shutdown func(context.Context) error
 
-// ConfigFromEnv reads the existing <PREFIX>_STATSD_* environment variables.
-// Tracing is enabled by default when STATSD_TRACING_ENABLED is unset. Metrics
-// are disabled by default when STATSD_DISABLED is unset.
+// ConfigFromEnv reads OTEL_* variables when prefix is empty and
+// <PREFIX>_OTEL_* variables otherwise. Tracing is enabled by default when
+// OTEL_TRACING_DISABLED is unset. Metrics are disabled by default when
+// OTEL_DISABLED is unset.
 func ConfigFromEnv(prefix string) (Config, error) {
 	cfg := Config{
-		TracingEnabled: true,
-		Disabled:       true,
+		Disabled: true,
 	}
 
 	var err error
 	cfg.Endpoint = os.Getenv(envName(prefix, "ADDR"))
 	cfg.Prefix = os.Getenv(envName(prefix, "PREFIX"))
-	if cfg.Insecure, err = boolFromEnv(prefix, "OTEL_INSECURE", false); err != nil {
+	if cfg.Insecure, err = boolFromEnv(prefix, "INSECURE", false); err != nil {
 		return Config{}, err
 	}
-	if cfg.TracingEnabled, err = boolFromEnv(prefix, "TRACING_ENABLED", true); err != nil {
+	if cfg.TracingDisabled, err = boolFromEnv(prefix, "TRACING_DISABLED", false); err != nil {
 		return Config{}, err
 	}
 	if cfg.ReportCanceledAsError, err = boolFromEnv(prefix, "REPORT_CANCELED_AS_ERROR", false); err != nil {
@@ -70,7 +70,7 @@ func ConfigFromEnv(prefix string) (Config, error) {
 	return cfg, nil
 }
 
-// InitFromEnv initializes OpenTelemetry using <PREFIX>_STATSD_* variables.
+// InitFromEnv initializes OpenTelemetry using OTEL_* or <PREFIX>_OTEL_* variables.
 func InitFromEnv(ctx context.Context, prefix string) (Shutdown, error) {
 	cfg, err := ConfigFromEnv(prefix)
 	if err != nil {
@@ -80,8 +80,8 @@ func InitFromEnv(ctx context.Context, prefix string) (Shutdown, error) {
 }
 
 // InitFromEnvBackground initializes OpenTelemetry in the background using
-// <PREFIX>_STATSD_* variables. It returns immediately and retries failed
-// initialization attempts until ctx is canceled or shutdown is called.
+// OTEL_* or <PREFIX>_OTEL_* variables. It returns immediately and retries
+// failed initialization attempts until ctx is canceled or shutdown is called.
 func InitFromEnvBackground(
 	ctx context.Context,
 	prefix string,
@@ -238,7 +238,7 @@ func Init(ctx context.Context, cfg Config) (Shutdown, error) {
 	)
 
 	var tracerProvider *sdktrace.TracerProvider
-	if cfg.TracingEnabled {
+	if !cfg.TracingDisabled {
 		traceOptions := []otlptracegrpc.Option{
 			otlptracegrpc.WithEndpoint(cfg.Endpoint),
 		}
@@ -320,12 +320,12 @@ func boolFromEnv(prefix, suffix string, fallback bool) (bool, error) {
 func envName(prefix, suffix string) string {
 	prefix = strings.Trim(strings.TrimSpace(prefix), "_")
 	if prefix == "" {
-		return "STATSD_" + suffix
+		return "OTEL_" + suffix
 	}
-	if strings.HasSuffix(prefix, "_STATSD") {
+	if prefix == "OTEL" || strings.HasSuffix(prefix, "_OTEL") {
 		return prefix + "_" + suffix
 	}
-	return prefix + "_STATSD_" + suffix
+	return prefix + "_OTEL_" + suffix
 }
 
 func noopShutdown(context.Context) error {

@@ -14,23 +14,21 @@ import (
 )
 
 func TestConfigFromEnv(t *testing.T) {
-	t.Setenv("INDEXER_STATSD_ADDR", "signoz-k8s-infra-otel-agent.addons:4317")
-	t.Setenv("INDEXER_STATSD_PREFIX", "indexer-rfq-api")
-	t.Setenv("INDEXER_STATSD_OTEL_INSECURE", "true")
-	t.Setenv("INDEXER_STATSD_TRACING_ENABLED", "false")
-	t.Setenv("INDEXER_STATSD_REPORT_CANCELED_AS_ERROR", "true")
-	t.Setenv("INDEXER_STATSD_DISABLED", "false")
-	t.Setenv("INDEXER_STATSD_OTEL_USE_COUNTERS", "false")
-	t.Setenv("INDEXER_STATSD_MOCKING", "true")
+	t.Setenv("APP_OTEL_ADDR", "signoz-k8s-infra-otel-agent.addons:4317")
+	t.Setenv("APP_OTEL_PREFIX", "app-api")
+	t.Setenv("APP_OTEL_INSECURE", "true")
+	t.Setenv("APP_OTEL_TRACING_DISABLED", "true")
+	t.Setenv("APP_OTEL_REPORT_CANCELED_AS_ERROR", "true")
+	t.Setenv("APP_OTEL_DISABLED", "false")
 
-	cfg, err := ConfigFromEnv("INDEXER")
+	cfg, err := ConfigFromEnv("APP")
 
 	require.NoError(t, err)
 	require.Equal(t, Config{
 		Endpoint:              "signoz-k8s-infra-otel-agent.addons:4317",
-		Prefix:                "indexer-rfq-api",
+		Prefix:                "app-api",
 		Insecure:              true,
-		TracingEnabled:        false,
+		TracingDisabled:       true,
 		ReportCanceledAsError: true,
 		Disabled:              false,
 	}, cfg)
@@ -40,38 +38,47 @@ func TestConfigFromEnvDefaults(t *testing.T) {
 	cfg, err := ConfigFromEnv("MISSING")
 
 	require.NoError(t, err)
-	require.True(t, cfg.TracingEnabled)
+	require.False(t, cfg.TracingDisabled)
 	require.False(t, cfg.ReportCanceledAsError)
 	require.True(t, cfg.Disabled)
 }
 
-func TestConfigFromEnvAcceptsFullStatsdPrefix(t *testing.T) {
-	t.Setenv("INDEXER_STATSD_ADDR", "collector:4317")
-	t.Setenv("INDEXER_STATSD_PREFIX", "indexer-api")
-	t.Setenv("INDEXER_STATSD_DISABLED", "false")
+func TestConfigFromEnvWithoutPrefix(t *testing.T) {
+	t.Setenv("OTEL_ADDR", "collector:4317")
+	t.Setenv("OTEL_PREFIX", "app-api")
+	t.Setenv("OTEL_DISABLED", "false")
 
-	cfg, err := ConfigFromEnv("INDEXER_STATSD")
+	cfg, err := ConfigFromEnv("")
 
 	require.NoError(t, err)
 	require.Equal(t, "collector:4317", cfg.Endpoint)
-	require.Equal(t, "indexer-api", cfg.Prefix)
+	require.Equal(t, "app-api", cfg.Prefix)
 	require.False(t, cfg.Disabled)
 }
 
+func TestConfigFromEnvAcceptsFullOtelPrefix(t *testing.T) {
+	t.Setenv("APP_OTEL_ADDR", "collector:4317")
+
+	cfg, err := ConfigFromEnv("APP_OTEL")
+
+	require.NoError(t, err)
+	require.Equal(t, "collector:4317", cfg.Endpoint)
+}
+
 func TestConfigFromEnvRejectsInvalidBoolean(t *testing.T) {
-	t.Setenv("INDEXER_STATSD_DISABLED", "sometimes")
+	t.Setenv("APP_OTEL_DISABLED", "sometimes")
 
-	_, err := ConfigFromEnv("INDEXER")
+	_, err := ConfigFromEnv("APP")
 
-	require.ErrorContains(t, err, "INDEXER_STATSD_DISABLED")
+	require.ErrorContains(t, err, "APP_OTEL_DISABLED")
 }
 
 func TestInitFromEnvDisabledDoesNotInitializeClient(t *testing.T) {
-	t.Setenv("INDEXER_STATSD_DISABLED", "true")
-	t.Setenv("INDEXER_STATSD_ADDR", "unreachable:4317")
-	t.Setenv("INDEXER_STATSD_PREFIX", "indexer-rfq-api")
+	t.Setenv("APP_OTEL_DISABLED", "true")
+	t.Setenv("APP_OTEL_ADDR", "unreachable:4317")
+	t.Setenv("APP_OTEL_PREFIX", "app-api")
 
-	shutdown, err := InitFromEnv(context.Background(), "INDEXER")
+	shutdown, err := InitFromEnv(context.Background(), "APP")
 
 	require.NoError(t, err)
 	require.NotNil(t, shutdown)
@@ -112,10 +119,9 @@ func TestInitDoesNotReplaceGlobalProviders(t *testing.T) {
 	})
 
 	shutdown, err := Init(context.Background(), Config{
-		Endpoint:       "127.0.0.1:4317",
-		Prefix:         "service",
-		Insecure:       true,
-		TracingEnabled: true,
+		Endpoint: "127.0.0.1:4317",
+		Prefix:   "service",
+		Insecure: true,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -132,9 +138,9 @@ func TestInitDoesNotReplaceGlobalProviders(t *testing.T) {
 }
 
 func TestInitFromEnvBackgroundRejectsInvalidInterval(t *testing.T) {
-	t.Setenv("INDEXER_STATSD_DISABLED", "true")
+	t.Setenv("APP_OTEL_DISABLED", "true")
 
-	shutdown, err := InitFromEnvBackground(context.Background(), "INDEXER", 0)
+	shutdown, err := InitFromEnvBackground(context.Background(), "APP", 0)
 
 	require.Nil(t, shutdown)
 	require.EqualError(t, err, "OpenTelemetry retry interval must be greater than zero")
