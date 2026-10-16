@@ -59,6 +59,12 @@ another telemetry client without either initializer replacing the other's
 providers. `Init` only configures the global W3C trace-context and baggage
 propagator.
 
+`MeterProvider()` and `TracerProvider()` return those providers for libraries
+that record through a provider they are given, such as
+`platform-go-tools/pkg/metrics`. They are no-op providers until `Init` returns,
+so hand them over after `Init`, not `InitBackground`. Names recorded through
+them are not prefixed; the providers' resource carries `service.name`.
+
 For explicit configuration, use `metrics.Init(ctx, metrics.Config{...})` or
 `metrics.InitBackground(ctx, metrics.Config{...}, retryInterval)`.
 

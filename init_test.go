@@ -9,8 +9,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 	globalotel "go.opentelemetry.io/otel"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	tracenoop "go.opentelemetry.io/otel/trace/noop"
 )
 
 func TestConfigFromEnv(t *testing.T) {
@@ -215,4 +217,45 @@ func TestInitBackgroundCanBeStoppedWhileRetrying(t *testing.T) {
 	defer cancel()
 	require.NoError(t, shutdown(shutdownCtx))
 	require.Equal(t, int32(1), attempts.Load())
+}
+
+func TestProvidersAreNoopUntilInit(t *testing.T) {
+	require.IsType(t, metricnoop.MeterProvider{}, MeterProvider())
+	require.IsType(t, tracenoop.TracerProvider{}, TracerProvider())
+}
+
+func TestInitExposesItsProviders(t *testing.T) {
+	shutdown, err := Init(context.Background(), Config{
+		Endpoint: "127.0.0.1:4317",
+		Prefix:   "service",
+		Insecure: true,
+	})
+	require.NoError(t, err)
+
+	require.IsType(t, &sdkmetric.MeterProvider{}, MeterProvider())
+	require.IsType(t, &sdktrace.TracerProvider{}, TracerProvider())
+	require.NotSame(t, globalotel.GetMeterProvider(), MeterProvider(), "the globals stay untouched")
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	_ = shutdown(shutdownCtx)
+	require.IsType(t, metricnoop.MeterProvider{}, MeterProvider(), "no provider after shutdown")
+}
+
+func TestTracerProviderIsNoopWithTracingDisabled(t *testing.T) {
+	shutdown, err := Init(context.Background(), Config{
+		Endpoint:        "127.0.0.1:4317",
+		Prefix:          "service",
+		Insecure:        true,
+		TracingDisabled: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = shutdown(shutdownCtx)
+	})
+
+	require.IsType(t, &sdkmetric.MeterProvider{}, MeterProvider())
+	require.IsType(t, tracenoop.TracerProvider{}, TracerProvider())
 }
