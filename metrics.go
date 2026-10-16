@@ -14,7 +14,9 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
+	metricnoop "go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/trace"
+	tracenoop "go.opentelemetry.io/otel/trace/noop"
 )
 
 const instrumentationName = "github.com/InjectiveLabs/otel"
@@ -44,8 +46,30 @@ var (
 )
 
 type telemetryState struct {
-	meter  otelmetric.Meter
-	tracer trace.Tracer
+	meter          otelmetric.Meter
+	tracer         trace.Tracer
+	meterProvider  otelmetric.MeterProvider
+	tracerProvider trace.TracerProvider
+}
+
+// MeterProvider is the meter provider Init configured, for libraries that
+// record through a provider they are given. It is a no-op provider before
+// Init, after shutdown, or when metrics are disabled. Names recorded through
+// it are not prefixed; the provider's resource carries service.name.
+func MeterProvider() otelmetric.MeterProvider {
+	if telemetry := activeTelemetry.Load(); telemetry != nil {
+		return telemetry.meterProvider
+	}
+	return metricnoop.NewMeterProvider()
+}
+
+// TracerProvider is the tracer provider Init configured, as MeterProvider. It
+// is a no-op provider too when tracing is disabled.
+func TracerProvider() trace.TracerProvider {
+	if telemetry := activeTelemetry.Load(); telemetry != nil && telemetry.tracerProvider != nil {
+		return telemetry.tracerProvider
+	}
+	return tracenoop.NewTracerProvider()
 }
 
 type instrumentRegistry struct {

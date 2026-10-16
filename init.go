@@ -257,10 +257,12 @@ func Init(ctx context.Context, cfg Config) (Shutdown, error) {
 	}
 
 	telemetry := &telemetryState{
-		meter: meterProvider.Meter(instrumentationName),
+		meter:         meterProvider.Meter(instrumentationName),
+		meterProvider: meterProvider,
 	}
 	if tracerProvider != nil {
 		telemetry.tracer = tracerProvider.Tracer(instrumentationName)
+		telemetry.tracerProvider = tracerProvider
 		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 			propagation.TraceContext{},
 			propagation.Baggage{},
